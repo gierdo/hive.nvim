@@ -37,13 +37,40 @@ end
 -- Model Parsing & Configuration
 -- ============================================================================
 
----Parse model string in format "adapter/model" or "adapter/provider/model"
+---Check whether an adapter name is registered as an ACP (harness) adapter.
+---ACP adapters (claude_code, codex, gemini_cli, ...) are launched as a CLI
+---subprocess over JSON-RPC and have no HTTP-style model; they take an optional
+---command preset instead.
+---@param adapter_name string|nil
+---@return boolean
+function M.is_acp_adapter(adapter_name)
+  if not adapter_name then return false end
+  local ok, cc_config = pcall(require, "codecompanion.config")
+  if not ok then return false end
+  local acp = cc_config.adapters and cc_config.adapters.acp
+  return acp ~= nil and acp[adapter_name] ~= nil
+end
+
+---Parse a subagent model spec.
+---HTTP: "adapter/model" or "adapter/provider/model" -> { adapter, model }.
+---ACP:  "adapter" or "adapter/command" (command = a key in the adapter's
+---      `commands` table, e.g. "yolo") -> { adapter, acp = true, command? }.
+---The first segment decides the shape: if it names a registered ACP adapter,
+---the remainder is a command preset, not a model.
 ---@param model_str string|nil The model string to parse
----@return { adapter: string, model: string }|nil Parsed adapter and model, or nil if invalid
+---@return { adapter: string, model?: string, acp?: boolean, command?: string }|nil
 function M.parse_model_string(model_str)
   if not model_str or model_str == "" then return nil end
 
   local parts = vim.split(model_str, "/", { plain = true })
+
+  if M.is_acp_adapter(parts[1]) then
+    -- ACP: bare adapter, or adapter/command preset. Extra segments are joined
+    -- back so a slash inside a command name does not silently split.
+    local command = #parts >= 2 and table.concat(vim.list_slice(parts, 2), "/") or nil
+    return { adapter = parts[1], acp = true, command = command }
+  end
+
   if #parts == 2 then
     -- Format: "openai/gpt-4o-mini" -> adapter: openai, model: gpt-4o-mini
     return { adapter = parts[1], model = parts[2] }

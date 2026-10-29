@@ -138,6 +138,17 @@ agents = {
 
 Override at runtime with `vim.g.EXTRA_SMALL_MODEL` and `vim.g.EXTRA_BIG_MODEL`, or interactively via the model picker keymap.
 
+A subagent model may also be a CodeCompanion ACP harness adapter (an external CLI agent over JSON-RPC, e.g. `claude_code`, `codex`, `gemini_cli`) instead of an HTTP `adapter/model`. Use the bare adapter name, or `adapter/command` to pick a command preset:
+
+```lua
+agents = {
+  small_model = "claude_code",   -- default command
+  big_model = "codex/yolo",      -- command preset
+}
+```
+
+An ACP subagent runs inside the harness's own tool loop and context management, so Hive's tool isolation, per-tool status (tool count reads 0), and context-lifecycle management do not apply to it. ACP adapters are config-only (the interactive model picker lists HTTP models only). See the [Subagents guide](docs/guide/subagents.md#limitations-vs-http-adapters) for the full list.
+
 Expensive models (e.g., `claude-opus*`) trigger a confirmation dialog before spawning subagents. Configure patterns:
 
 ```lua

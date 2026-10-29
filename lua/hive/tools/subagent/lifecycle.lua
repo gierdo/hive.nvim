@@ -24,7 +24,7 @@ local M = {}
 ---Task subagents use "small" model, consult advisors use "big" model.
 ---Falls back to inheriting from the parent chat adapter if no model is configured.
 ---@param args { parent_chat: table, model_type?: "small"|"big" }
----@return table|nil params { adapter: string, model?: string }
+---@return table|nil params { adapter: string, model?: string, command?: string }
 function M.get_adapter_params(args)
   local parent_chat = args.parent_chat
   local model_type = args.model_type or "small"
@@ -32,7 +32,16 @@ function M.get_adapter_params(args)
 
   local model = models.get_model(model_type)
   if model then
-    log:debug("[Lifecycle] Using %s_model: adapter=%s, model=%s", model_type, model.adapter, model.model)
+    log:debug(
+      "[Lifecycle] Using %s_model: adapter=%s, model=%s, command=%s",
+      model_type,
+      model.adapter,
+      model.model or "-",
+      model.command or "-"
+    )
+
+    -- ACP harness adapters have no HTTP model; pass the command preset instead.
+    if model.acp then return { adapter = model.adapter, command = model.command } end
 
     if models.is_expensive_model(model.adapter, model.model) then
       log:warn(
@@ -64,6 +73,15 @@ function M.get_adapter_params(args)
   local parent_adapter = parent_chat.adapter
   if parent_adapter then
     local adapter_name = parent_adapter.name
+
+    -- ACP parent: inherit the harness adapter; there is no HTTP model to carry.
+    -- The command preset is not recoverable from the resolved adapter, so the
+    -- child starts on the adapter's default command.
+    if adapter_name and parent_adapter.type == "acp" then
+      log:debug("[Lifecycle] Inheriting ACP parent: adapter=%s (default command)", adapter_name)
+      return { adapter = adapter_name }
+    end
+
     local model_name = parent_adapter.schema and parent_adapter.schema.model and parent_adapter.schema.model.default
 
     if type(model_name) == "function" then model_name = model_name(parent_adapter) end

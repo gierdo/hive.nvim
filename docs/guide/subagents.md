@@ -81,3 +81,61 @@ Persistent overrides via environment-style globals:
 vim.g.HIVE_SMALL_MODEL = "openai/gpt-4.1-mini"
 vim.g.HIVE_BIG_MODEL = "openai/o3"
 ```
+
+### ACP Harness Adapters
+
+A subagent model can also be a CodeCompanion ACP adapter (an external harness
+run as a CLI subprocess over JSON-RPC, such as `claude_code`, `codex`,
+`gemini_cli`, or `copilot_acp`) instead of an HTTP `adapter/model` pair.
+
+The spec is the adapter name on its own, or `adapter/command` where `command` is
+a key in that adapter's `commands` table (for example `claude_code/yolo`):
+
+```lua
+agents = {
+  small_model = "claude_code",       -- bare adapter: uses its default command
+  big_model = "codex/yolo",          -- adapter/command preset
+}
+```
+
+```vim
+:Hive model small gemini_cli
+```
+
+An ACP adapter is detected automatically: if the first segment names an adapter
+registered under `adapters.acp` in your CodeCompanion config, the remainder is
+treated as a command preset rather than a model.
+
+#### Limitations vs HTTP adapters
+
+An ACP subagent runs inside the external harness's own tool loop, permission
+model, and context management. Hive wires the child chat and collects its final
+result, but does not drive what happens in between. Compared to an HTTP
+subagent:
+
+- **Tools and roles do not apply.** The subagent's tool access, isolation, and
+  system prompt come from the harness, not from Hive's agent definition. You get
+  "delegate to the harness and collect its result," not a Hive-role agent that
+  uses Hive's tools. Per-tool approval is handled by the harness.
+- **No live tool status; tool count is always 0.** Hive's per-subagent progress
+  (which tool is running, how many have run) is driven by CodeCompanion's
+  `ToolStarted` / `ToolFinished` events, which only the HTTP tool orchestrator
+  emits. ACP runs tools over JSON-RPC inside the harness and never fires them, so
+  the status line shows no tool activity and the completion summary reports
+  `0 tools used` regardless of what the harness actually did. Start/elapsed time
+  and the final result still work (completion is detected via `CodeCompanionChatDone`,
+  which ACP does fire).
+- **Fast-completion warning may misfire.** Hive warns when a subagent finishes
+  very fast with zero tool calls, as a misconfiguration signal. Because ACP tool
+  count is always 0, a quick, legitimate ACP run can trigger this warning. Treat
+  it as advisory for ACP subagents.
+- **Expensive-model confirmation does not match.** The `confirm_expensive_models`
+  patterns match on `adapter/model`; an ACP spec carries a command, not a model,
+  so the confirmation dialog will not fire for ACP adapters.
+- **Context-lifecycle (nudge / compaction / reset) does not manage the child.**
+  Those layers operate on CodeCompanion HTTP message/token tracking. An ACP
+  harness manages its own context internally.
+- **Config only; no interactive picker.** The model picker (`gm` / `]m`) lists
+  HTTP models only. Configure ACP subagents via `agents.small_model` /
+  `agents.big_model`, the `:Hive model` command, or `vim.g.HIVE_SMALL_MODEL` /
+  `vim.g.HIVE_BIG_MODEL`.
