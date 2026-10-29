@@ -165,6 +165,9 @@ function M._setup_chat_events()
         M._chat_agents[bufnr] = nil
         hierarchy.remove(bufnr)
 
+        local ok_acp, acp_agents = pcall(require, "hive.agents.acp_agents")
+        if ok_acp then acp_agents.forget(bufnr) end
+
         if #children_to_close > 0 then
           vim.schedule(function()
             close_children_recursive(children_to_close)
@@ -673,6 +676,26 @@ function M.activate(agent_name, chat, opts)
   local current_agent = M._chat_agents[chat.bufnr]
   if current_agent == agent_name then
     if not opts.silent then notify(fmt("Agent '%s' already active", agent_name), vim.log.levels.INFO) end
+    return true
+  end
+
+  -- ACP-bound agents run as their own CLI process and cannot be overlaid on a
+  -- shared buffer. Route to the agent's dedicated chat (per chat family), apply
+  -- only its system prompt there, and skip hive tool-group injection (inert for
+  -- ACP: the harness runs its own tools). Only fork when the current buffer is
+  -- not already that agent's ACP chat, so applying the agent to its freshly
+  -- created buffer falls through to the normal path below.
+  if agent.acp and M._chat_agents[chat.bufnr] ~= agent_name then
+    local acp_agents = require("hive.agents.acp_agents")
+    local target = acp_agents.focus_or_open(chat, agent)
+    if not target then return false end
+    if M._chat_agents[target.bufnr] ~= agent_name then
+      M._apply_agent_system_prompt(target, agent, agent_name)
+      M._chat_agents[target.bufnr] = agent_name
+      local navigation = require("hive.agents.navigation")
+      navigation.setup_winbar(target.bufnr, true)
+      if not opts.silent then notify(fmt("Agent: %s", agent_name), vim.log.levels.INFO) end
+    end
     return true
   end
 

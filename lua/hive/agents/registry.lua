@@ -37,6 +37,8 @@ local M = {}
 ---@field model_prompts? table<string, string|fun(chat: table): string> Model-specific system prompts (key = model name substring, case-insensitive)
 ---@field opts? Hive.AgentOpts Behavior options
 ---@field is_advisor? boolean True for advisor-type subagents (used by consult tool)
+---@field acp? string ACP harness adapter name; makes this an ACP-bound agent that runs in its own chat buffer
+---@field acp_command? string Optional ACP command preset (a key in the adapter's `commands` table, e.g. "yolo")
 
 ---@type table<string, Hive.Agent>
 M.agents = {

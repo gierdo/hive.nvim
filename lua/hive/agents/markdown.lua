@@ -47,6 +47,8 @@ local uv = vim.uv
 ---@field permissions? Hive.AgentPermissions
 ---@field system_prompt? string
 ---@field opts? Hive.AgentOpts
+---@field acp? string
+---@field acp_command? string
 
 ---Check if a path is a directory
 ---@param path string
@@ -135,6 +137,8 @@ function M.parse_file(path)
     tools = frontmatter.tools,
     permissions = frontmatter.permissions,
     opts = frontmatter.opts,
+    acp = frontmatter.acp,
+    acp_command = frontmatter.acp_command,
   }
 
   local system_prompt = extract_system_prompt(body)
@@ -189,6 +193,8 @@ function M.register_from_dir(dir)
       permissions = agent.permissions,
       system_prompt = agent.system_prompt,
       opts = agent.opts,
+      acp = agent.acp,
+      acp_command = agent.acp_command,
     })
     count = count + 1
   end
