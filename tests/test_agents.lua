@@ -513,4 +513,19 @@ T["agents"]["plan tools write read and exit back to build"] = function()
   expect.equality(summary.exit_mentions_workflow, true)
 end
 
+T["agents"]["resolve_system_prompt returns agent prompt and nil for unknown"] = function()
+  local summary = child.lua([[
+    local agents = require("hive.agents")
+    local chat = _G.new_chat(401, "model-a")
+    return {
+      build = agents.resolve_system_prompt("build", chat),
+      unknown_is_nil = agents.resolve_system_prompt("does-not-exist", chat) == nil,
+    }
+  ]])
+
+  -- build agent's system_prompt is a function delegating to prompts.get (stubbed)
+  expect.equality(summary.build, "PROMPT:build|Adapter:test_adapter/model-a")
+  expect.equality(summary.unknown_is_nil, true)
+end
+
 return T

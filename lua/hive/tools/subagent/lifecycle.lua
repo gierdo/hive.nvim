@@ -217,9 +217,19 @@ function M.activate_and_submit(args)
     return false
   end
 
+  -- ACP harnesses drop system-role messages (only user-role is forwarded over
+  -- JSON-RPC), so the agent's system prompt never reaches them. Fold it into
+  -- the first user prompt for ACP children. HTTP children receive it via the
+  -- normal system message, so leave those untouched.
+  local prompt = args.prompt
+  if args.child_chat.adapter and args.child_chat.adapter.type == "acp" then
+    local sys = agents.resolve_system_prompt(args.agent_name, args.child_chat)
+    if sys and sys ~= "" then prompt = sys .. "\n\n---\n\n" .. prompt end
+  end
+
   args.child_chat:add_message({
     role = cc_config.constants.USER_ROLE,
-    content = args.prompt,
+    content = prompt,
   }, { visible = true })
 
   hierarchy.start_timer(args.child_chat.bufnr)

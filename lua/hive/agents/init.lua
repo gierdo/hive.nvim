@@ -554,6 +554,17 @@ function M.get(name)
   return M._agents[name]
 end
 
+---Resolve an agent's effective system prompt for a chat.
+---Handles string/function system_prompt and model_prompts, same as activation.
+---@param agent_name string
+---@param chat table CodeCompanion.Chat instance
+---@return string|nil
+function M.resolve_system_prompt(agent_name, chat)
+  local agent = M._agents[agent_name]
+  if not agent then return nil end
+  return M._resolve_system_prompt(chat, agent, agent_name)
+end
+
 ---List available agents
 ---@param filter_type? Hive.AgentType Filter by type ("agent" or "subagent")
 ---@return string[]
