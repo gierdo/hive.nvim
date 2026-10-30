@@ -43,21 +43,25 @@ function M.setup(config)
 
   local markdown = require("hive.agents.markdown")
 
-  if M._config.load_default_agents ~= false then
-    local default_loaded = markdown.load_from_dir(markdown.default_dir())
-    M._agents = vim.tbl_deep_extend("force", M._agents, default_loaded)
+  -- Markdown agents fully replace a built-in of the same name rather than
+  -- deep-merging onto it. A deep-merge would keep built-in fields the markdown
+  -- file omits (e.g. the built-in `build`/`plan` function system_prompt and the
+  -- absence of `acp`), so an ACP override could never take effect. Replacing the
+  -- whole entry lets a markdown `build`/`plan` with `acp:` take the ACP path.
+  local function replace_agents(loaded)
+    for name, agent in pairs(loaded) do
+      M._agents[name] = agent
+    end
   end
+
+  if M._config.load_default_agents ~= false then replace_agents(markdown.load_from_dir(markdown.default_dir())) end
 
   if M._config.load_cwd_agents ~= false then
     local cwd_agents_dir = vim.fs.joinpath(vim.fn.getcwd(), ".codecompanion", "agents")
-    local cwd_loaded = markdown.load_from_dir(cwd_agents_dir)
-    M._agents = vim.tbl_deep_extend("force", M._agents, cwd_loaded)
+    replace_agents(markdown.load_from_dir(cwd_agents_dir))
   end
 
-  if M._config.load_from_dir then
-    local loaded = markdown.load_from_dir(M._config.load_from_dir)
-    M._agents = vim.tbl_deep_extend("force", M._agents, loaded)
-  end
+  if M._config.load_from_dir then replace_agents(markdown.load_from_dir(M._config.load_from_dir)) end
 
   M._register_agent_groups()
   M._setup_keymap()

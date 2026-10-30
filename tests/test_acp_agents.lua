@@ -14,6 +14,11 @@ local T = new_set({
         local noop = function() end
         package.loaded["codecompanion.utils.log"] =
           { debug = noop, info = noop, warn = noop, error = noop }
+        -- Configured ACP adapters, so resolve_adapter accepts "kiro" and can
+        -- resolve "auto". Order-sensitive: "kiro" is the only non-opts entry.
+        package.loaded["codecompanion.config"] = {
+          adapters = { acp = { opts = {}, kiro = function() end } },
+        }
         package.loaded["hive.utils.notify"] = function() end
         package.loaded["hive.agents.navigation"] =
           { setup_winbar = noop, refresh_winbar = noop }
@@ -105,6 +110,46 @@ T["acp_agents"]["forget drops the entry so a new buffer opens next time"] = func
   ]])
   expect.equality(result.a ~= result.b, true)
   expect.equality(result.opens, 2)
+end
+
+T["acp_agents"]["acp=auto resolves to the configured adapter"] = function()
+  make_root(100)
+  local result = child.lua([[
+    local m = require("hive.agents.acp_agents")
+    local agent = { name = "build", type = "agent", acp = "auto" }
+    local a = m.focus_or_open(_G.chats[100], agent)
+    return {
+      opened = a ~= nil,
+      adapter = _G.chat_calls[1] and _G.chat_calls[1].params.adapter,
+    }
+  ]])
+  expect.equality(result.opened, true)
+  expect.equality(result.adapter, "kiro")
+end
+
+T["acp_agents"]["acp=auto returns nil when no adapter is configured"] = function()
+  make_root(100)
+  local result = child.lua([[
+    package.loaded["codecompanion.config"] = { adapters = { acp = { opts = {} } } }
+    local m = require("hive.agents.acp_agents")
+    local agent = { name = "build", type = "agent", acp = "auto" }
+    local a = m.focus_or_open(_G.chats[100], agent)
+    return { opened = a ~= nil, opens = #_G.chat_calls }
+  ]])
+  expect.equality(result.opened, false)
+  expect.equality(result.opens, 0) -- never reached codecompanion.chat
+end
+
+T["acp_agents"]["literal acp name unknown to config is rejected"] = function()
+  make_root(100)
+  local result = child.lua([[
+    local m = require("hive.agents.acp_agents")
+    local agent = { name = "build", type = "agent", acp = "nonexistent" }
+    local a = m.focus_or_open(_G.chats[100], agent)
+    return { opened = a ~= nil, opens = #_G.chat_calls }
+  ]])
+  expect.equality(result.opened, false)
+  expect.equality(result.opens, 0)
 end
 
 return T

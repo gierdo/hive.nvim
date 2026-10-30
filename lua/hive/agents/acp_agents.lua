@@ -67,11 +67,47 @@ local function focus(from_chat, to_bufnr)
   return true
 end
 
+---Resolve an agent's `acp` field to a configured ACP adapter name.
+---"auto" picks the first adapter configured under adapters.acp, letting one
+---shared agent definition work on machines with different harnesses (kiro here,
+---agy there). A literal name is honoured only if that adapter is configured.
+---simplification: "auto" takes the first adapter by pairs() iteration order,
+---which is not deterministic in Lua. Ceiling: with several ACP adapters present,
+---which one "auto" picks is unspecified. Upgrade path: honour an explicit
+---priority list (e.g. agents.acp_priority) before falling back to first-found.
+---@param acp string|nil The agent's acp field
+---@return string|nil adapter Resolved adapter name, or nil if none available
+function M.resolve_adapter(acp)
+  if not acp then return nil end
+
+  local ok, cc_config = pcall(require, "codecompanion.config")
+  local acp_adapters = ok and cc_config.adapters and cc_config.adapters.acp or {}
+
+  if acp ~= "auto" then
+    -- Honour a literal name only when it is actually configured.
+    return acp_adapters[acp] and acp or nil
+  end
+
+  for name, _ in pairs(acp_adapters) do
+    if name ~= "opts" then return name end
+  end
+  return nil
+end
+
 ---Open or focus the dedicated chat for an ACP-bound agent within from_chat's family.
 ---@param from_chat table The chat the switch was triggered from
 ---@param agent Hive.Agent ACP-bound agent (agent.acp set)
 ---@return table|nil chat The agent's chat, or nil on failure
 function M.focus_or_open(from_chat, agent)
+  local adapter = M.resolve_adapter(agent.acp)
+  if not adapter then
+    notify(
+      fmt("No ACP adapter available for agent '%s' (acp=%s)", agent.name, tostring(agent.acp)),
+      vim.log.levels.WARN
+    )
+    return nil
+  end
+
   local root = M.family_root(from_chat.bufnr)
   local family = M._families[root]
 
@@ -87,7 +123,7 @@ function M.focus_or_open(from_chat, agent)
   local codecompanion = require("codecompanion")
   local chat = codecompanion.chat({
     window_opts = from_chat.ui and from_chat.ui.window_opts,
-    params = { adapter = agent.acp, command = agent.acp_command },
+    params = { adapter = adapter, command = agent.acp_command },
   })
   if not chat then
     notify(fmt("Failed to open ACP chat for agent '%s'", agent.name), vim.log.levels.ERROR)

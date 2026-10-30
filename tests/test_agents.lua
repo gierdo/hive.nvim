@@ -528,4 +528,52 @@ T["agents"]["resolve_system_prompt returns agent prompt and nil for unknown"] = 
   expect.equality(summary.unknown_is_nil, true)
 end
 
+T["agents"]["markdown agent fully overrides same-named builtin (acp path)"] = function()
+  local summary = child.lua([[
+    -- Re-stub the markdown loader to return a `build` override with acp set,
+    -- then re-run setup with default-dir loading enabled so replace_agents runs.
+    package.loaded["hive.agents.markdown"] = {
+      default_dir = function() return "/fake" end,
+      load_from_dir = function(dir)
+        if dir ~= "/fake" then return {} end
+        return {
+          build = {
+            type = "agent",
+            name = "build",
+            description = "ACP build",
+            acp = "kiro",
+            system_prompt = "md build prompt",
+          },
+        }
+      end,
+    }
+
+    package.loaded["hive.agents"] = nil
+    local agents = require("hive.agents")
+    agents.setup({
+      load_default_agents = true,
+      load_cwd_agents = false,
+      keymap = {},
+    })
+
+    local build = agents.get("build")
+    return {
+      acp = build.acp,
+      -- built-in build.system_prompt is a function; markdown override is a string
+      prompt_is_string = type(build.system_prompt) == "string",
+      prompt = type(build.system_prompt) == "string" and build.system_prompt or "",
+      -- built-in build.tools list must be gone (markdown omitted it)
+      tools_nil = build.tools == nil,
+      -- plan is untouched built-in: still a function prompt
+      plan_prompt_is_function = type(agents.get("plan").system_prompt) == "function",
+    }
+  ]])
+
+  expect.equality(summary.acp, "kiro")
+  expect.equality(summary.prompt_is_string, true)
+  expect.equality(summary.prompt, "md build prompt")
+  expect.equality(summary.tools_nil, true)
+  expect.equality(summary.plan_prompt_is_function, true)
+end
+
 return T

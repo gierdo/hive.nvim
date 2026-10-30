@@ -103,6 +103,39 @@ acp_command: default
 You are an implementation agent ...
 ```
 
+### Overriding the built-in `build` / `plan`
+
+A markdown agent whose `name` matches a built-in (`build`, `plan`) **fully
+replaces** that built-in - it is not merged onto it. This lets you make the
+default primary agents ACP-bound. Drop a `build.md` / `plan.md` in your agents
+directory (`.codecompanion/agents/` per project, or
+`~/.config/nvim/codecompanion/agents/` globally) with `acp:` set and the
+built-in HTTP definition is discarded entirely. Load order is default dir, then
+cwd, then `load_from_dir`; a later source replaces an earlier same-named agent.
+
+### Sharing one definition across machines with `acp: auto`
+
+Hardcoding `acp: kiro` ties a definition to one harness. On a machine where only
+a different harness is installed, switching to that agent fails to open (no
+buffer, a warning is emitted). Use `acp: auto` to resolve to **the first ACP
+adapter configured** under `adapters.acp` on the current machine, so a single
+shared file works everywhere:
+
+```markdown
+---
+name: build
+type: agent
+description: Autonomous coding agent (ACP harness)
+acp: auto
+---
+```
+
+With `adapters.acp = { kiro = ... }` on one laptop and `{ agy = ... }` on
+another, the same `build.md` binds to whichever is present. If no ACP adapter is
+configured, the switch is a no-op with a warning rather than an error. When
+several ACP adapters are configured, which one `auto` picks is unspecified (it
+is the first by table iteration order).
+
 Because an ACP harness runs as its own process with its own tool loop, an
 ACP-bound agent cannot be overlaid on a shared chat buffer. Switching to one
 (via `]o` / `<Tab>`) **opens or focuses a dedicated chat buffer for that agent**
