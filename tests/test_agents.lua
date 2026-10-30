@@ -528,6 +528,35 @@ T["agents"]["resolve_system_prompt returns agent prompt and nil for unknown"] = 
   expect.equality(summary.unknown_is_nil, true)
 end
 
+T["agents"]["cycle skips non-ACP agents when an ACP agent is active"] = function()
+  local summary = child.lua([[
+    local agents = require("hive.agents")
+
+    -- Two ACP primaries and one HTTP primary.
+    agents.register("acp_a", { type = "agent", name = "acp_a", description = "A", acp = "kiro" })
+    agents.register("acp_b", { type = "agent", name = "acp_b", description = "B", acp = "kiro" })
+    agents.register("http_x", { type = "agent", name = "http_x", description = "X" })
+
+    -- Pretend acp_a is active on this chat (no real buffer swap needed; we only
+    -- exercise which agent _cycle_agent picks next).
+    local chat = _G.new_chat(777, "model-a")
+    agents._chat_agents = agents._chat_agents or {}
+    agents._chat_agents[chat.bufnr] = "acp_a"
+
+    -- Capture the next agent _cycle_agent resolves without performing the full
+    -- ACP buffer switch: stub activate to record the target.
+    local picked
+    local real_activate = agents.activate
+    agents.activate = function(name) picked = name; return true end
+    agents._cycle_agent(chat)
+    agents.activate = real_activate
+
+    return { picked = picked }
+  ]])
+  -- From acp_a, the only other ACP agent is acp_b; http_x must be skipped.
+  expect.equality(summary.picked, "acp_b")
+end
+
 T["agents"]["markdown agent fully overrides same-named builtin (acp path)"] = function()
   local summary = child.lua([[
     -- Re-stub the markdown loader to return a `build` override with acp set,

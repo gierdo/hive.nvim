@@ -526,9 +526,19 @@ end
 ---Cycle to the next primary agent in sorted order
 ---@param chat table
 function M._cycle_agent(chat)
+  local current = M._chat_agents[chat.bufnr]
+
+  -- Once an ACP agent is active, cycle only ACP agents. Applying a non-ACP
+  -- (HTTP) agent in place would overlay it onto the ACP harness buffer and
+  -- corrupt it; restricting the cycle keeps every Tab a buffer-to-buffer ACP
+  -- switch. The current agent's own name is always included so a lone ACP agent
+  -- still cycles to itself (a no-op) rather than falling back to HTTP agents.
+  -- Reach HTTP agents via explicit select (]o) instead.
+  local current_is_acp = current and M._agents[current] and M._agents[current].acp ~= nil
+
   local primary_agents = {}
   for name, agent in pairs(M._agents) do
-    if agent.type == "agent" then table.insert(primary_agents, name) end
+    if agent.type == "agent" and (not current_is_acp or agent.acp ~= nil) then table.insert(primary_agents, name) end
   end
 
   table.sort(primary_agents)
@@ -539,9 +549,7 @@ function M._cycle_agent(chat)
     return
   end
 
-  local current = M._chat_agents[chat.bufnr]
   local next_idx = 1
-
   if current then
     for i, name in ipairs(primary_agents) do
       if name == current then
