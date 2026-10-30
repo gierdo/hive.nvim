@@ -60,9 +60,26 @@ end
 ---@param to_bufnr number
 ---@return boolean
 local function place_in_win(from_chat, to_bufnr)
-  local winnr = from_chat.ui and from_chat.ui.winnr
-  if not (winnr and vim.api.nvim_win_is_valid(winnr)) then return false end
   if not vim.api.nvim_buf_is_valid(to_bufnr) then return false end
+
+  -- The window actually displaying from_chat is authoritative. We bypass
+  -- codecompanion's UI:open, so ui.winnr goes stale after the first in-place
+  -- swap (CC never learns the window changed); relying on it makes the second
+  -- switch silently no-op. Resolve from the live buffer->window mapping first,
+  -- then fall back to the recorded winnr, then the current window.
+  local winnr
+  for _, w in ipairs(from_chat.bufnr and vim.fn.win_findbuf(from_chat.bufnr) or {}) do
+    if vim.api.nvim_win_is_valid(w) then
+      winnr = w
+      break
+    end
+  end
+  if not winnr then
+    local recorded = from_chat.ui and from_chat.ui.winnr
+    if recorded and vim.api.nvim_win_is_valid(recorded) then winnr = recorded end
+  end
+  winnr = winnr or vim.api.nvim_get_current_win()
+  if not vim.api.nvim_win_is_valid(winnr) then return false end
 
   local saved = vim.o.eventignore
   vim.o.eventignore = "BufWinEnter,BufEnter,WinEnter"

@@ -152,6 +152,33 @@ T["acp_agents"]["new chat is created hidden and swapped into the from window (no
   expect.equality(result.wins_after, result.wins_before)
 end
 
+T["acp_agents"]["second ACP switch also lands in the one window (no stale winnr)"] = function()
+  make_root(100)
+  local result = child.lua([[
+    local m = require("hive.agents.acp_agents")
+    local win = _G.chats[100].ui.winnr
+    local wins_before = #vim.api.nvim_tabpage_list_wins(0)
+
+    -- First switch: from the root chat to agent A.
+    local a = m.focus_or_open(_G.chats[100], { name = "a", type = "agent", acp = "kiro" })
+    -- Second switch: now triggered from A's chat (what the keymap passes), to B.
+    local from_a = _G.chats[a.bufnr]
+    local b = m.focus_or_open(from_a, { name = "b", type = "agent", acp = "kiro" })
+
+    return {
+      win_shows_b = vim.api.nvim_win_get_buf(win) == b.bufnr,
+      same_win = (a.bufnr ~= b.bufnr),
+      wins_after = #vim.api.nvim_tabpage_list_wins(0),
+      wins_before = wins_before,
+    }
+  ]])
+  -- the second agent's buffer occupies the same originating window
+  expect.equality(result.win_shows_b, true)
+  expect.equality(result.same_win, true)
+  -- still exactly one chat window, no extra split from the second switch
+  expect.equality(result.wins_after, result.wins_before)
+end
+
 T["acp_agents"]["acp=auto resolves to the configured adapter"] = function()
   make_root(100)
   local result = child.lua([[
