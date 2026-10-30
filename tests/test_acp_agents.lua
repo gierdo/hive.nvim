@@ -24,37 +24,25 @@ local T = new_set({
           { setup_winbar = noop, refresh_winbar = noop }
 
         -- Fake codecompanion: chat() makes a real scratch buffer (so
-        -- nvim_buf_is_valid passes) and records the adapter/command it was
-        -- asked for; buf_get_chat returns the matching fake chat. Each chat's ui
-        -- carries a `winnr` tag so we can assert window-slot placement.
+        -- nvim_win_set_buf / nvim_buf_is_valid work) and records the
+        -- adapter/command it was asked for; buf_get_chat returns the matching
+        -- fake chat. The chat ui has no winnr until placed (the agent is hidden).
         _G.chats = {}
         _G.chat_calls = {}
-        _G.open_calls = {}
-        local winseq = 1000
         package.loaded["codecompanion"] = {
           chat = function(opts)
             local bufnr = vim.api.nvim_create_buf(false, true)
-            winseq = winseq + 1
+            vim.bo[bufnr].filetype = "codecompanion"
             local c = {
               bufnr = bufnr,
               hidden = opts.hidden or false,
-              ui = { window_opts = {}, winnr = winseq, open = noop, hide = noop },
+              ui = { window_opts = {}, winnr = nil, open = noop, hide = noop },
             }
             _G.chats[bufnr] = c
             table.insert(_G.chat_calls, { bufnr = bufnr, params = opts.params, hidden = opts.hidden })
             return c
           end,
           buf_get_chat = function(bufnr) return _G.chats[bufnr] end,
-        }
-
-        -- Stub Chat.open: records the winnr the chat was placed into, and
-        -- adopts it as the chat's winnr (mirrors show_in_win).
-        package.loaded["codecompanion.interactions.chat"] = {
-          open = function(opts)
-            table.insert(_G.open_calls, { winnr = opts.winnr })
-            if opts.ui and opts.winnr then opts.ui.winnr = opts.winnr end
-            return opts.ui
-          end,
         }
 
         package.loaded["hive.agents.acp_agents"] = nil
@@ -68,16 +56,23 @@ local T = new_set({
 
 T["acp_agents"] = new_set()
 
--- Simulate a family root chat buffer the user triggers switches from.
+-- Create a root chat occupying a real window (the "codecompanion vsplit"), so
+-- place_in_win actually swaps the buffer shown there.
 local function make_root(bufnr)
   return child.lua(([[
     local bufnr = %d
     local hierarchy = require("hive.agents.hierarchy")
-    -- root has a session with no parent
     hierarchy.create_session({ bufnr = bufnr, agent_name = "build", agent_type = "agent" })
+
+    local buf = vim.api.nvim_create_buf(false, true)
+    vim.bo[buf].filetype = "codecompanion"
+    vim.cmd("vsplit")
+    local win = vim.api.nvim_get_current_win()
+    vim.api.nvim_win_set_buf(win, buf)
+
     _G.chats[bufnr] = {
-      bufnr = bufnr,
-      ui = { window_opts = {}, winnr = 900, open = function() end, hide = function() end },
+      bufnr = buf,
+      ui = { window_opts = {}, winnr = win, open = function() end, hide = function() end },
     }
     return bufnr
   ]]):format(bufnr))
@@ -133,21 +128,28 @@ T["acp_agents"]["forget drops the entry so a new buffer opens next time"] = func
   expect.equality(result.opens, 2)
 end
 
-T["acp_agents"]["new chat is placed into the originating chat window and created hidden"] = function()
+T["acp_agents"]["new chat is created hidden and swapped into the from window (no new split)"] = function()
   make_root(100)
   local result = child.lua([[
     local m = require("hive.agents.acp_agents")
+    local from_win = _G.chats[100].ui.winnr
+    local wins_before = #vim.api.nvim_tabpage_list_wins(0)
+
     local agent = { name = "kiro_build", type = "agent", acp = "kiro" }
-    m.focus_or_open(_G.chats[100], agent)
+    local a = m.focus_or_open(_G.chats[100], agent)
+
     return {
       created_hidden = _G.chat_calls[1].hidden,
-      placed_winnr = _G.open_calls[1] and _G.open_calls[1].winnr,
+      -- the ACP buffer now occupies the originating codecompanion window
+      win_shows_acp = vim.api.nvim_win_get_buf(from_win) == a.bufnr,
+      -- no additional window was created
+      wins_after = #vim.api.nvim_tabpage_list_wins(0),
+      wins_before = wins_before,
     }
   ]])
-  -- created hidden so codecompanion does not vsplit a stray window
   expect.equality(result.created_hidden, true)
-  -- then placed into from_chat's window slot (900), not a new split
-  expect.equality(result.placed_winnr, 900)
+  expect.equality(result.win_shows_acp, true)
+  expect.equality(result.wins_after, result.wins_before)
 end
 
 T["acp_agents"]["acp=auto resolves to the configured adapter"] = function()

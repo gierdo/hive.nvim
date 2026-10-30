@@ -48,28 +48,42 @@ local function buf_is_live(bufnr)
   return bufnr ~= nil and vim.api.nvim_buf_is_valid(bufnr)
 end
 
----Focus an already-open ACP agent chat, restoring the window like navigation does.
+---Swap the buffer shown in from_chat's window to to_bufnr, in place.
+---We deliberately bypass codecompanion's UI:open / show_in_win, which create or
+---split windows and fire BufWinEnter in a way that fights window-guard autocmds
+---(e.g. a user autocmd that relocates non-codecompanion buffers), producing
+---"E36: Not enough room". A bare nvim_win_set_buf into the window codecompanion
+---already owns keeps everything in that one split, which is the intended model.
+---eventignore suppresses the guard autocmd during the swap; the target already
+---has filetype=codecompanion so the guard would pass it anyway.
+---@param from_chat table
+---@param to_bufnr number
+---@return boolean
+local function place_in_win(from_chat, to_bufnr)
+  local winnr = from_chat.ui and from_chat.ui.winnr
+  if not (winnr and vim.api.nvim_win_is_valid(winnr)) then return false end
+  if not vim.api.nvim_buf_is_valid(to_bufnr) then return false end
+
+  local saved = vim.o.eventignore
+  vim.o.eventignore = "BufWinEnter,BufEnter,WinEnter"
+  local ok = pcall(vim.api.nvim_win_set_buf, winnr, to_bufnr)
+  vim.o.eventignore = saved
+  if not ok then return false end
+
+  vim.api.nvim_set_current_win(winnr)
+
+  local to_chat = require("codecompanion").buf_get_chat(to_bufnr)
+  if to_chat and to_chat.ui then to_chat.ui.winnr = winnr end
+  return true
+end
+
+---Focus an already-open ACP agent chat by swapping it into from_chat's window.
 ---@param from_chat table
 ---@param to_bufnr number
 ---@return boolean
 local function focus(from_chat, to_bufnr)
-  local codecompanion = require("codecompanion")
-  local to_chat = codecompanion.buf_get_chat(to_bufnr)
-  if not to_chat then return false end
-
-  local window_opts = (from_chat.ui and from_chat.ui.window_opts) or { default = true }
-
-  -- Place the target into from_chat's window slot rather than hide+open, which
-  -- for a vertical layout would close the chat window and then vsplit off the
-  -- editor window (clobbering the user's file buffer). Fall back to a plain open
-  -- when there is no originating window to reuse.
-  local from_winnr = from_chat.ui and from_chat.ui.winnr
-  if from_winnr and vim.api.nvim_win_is_valid(from_winnr) and from_chat.ui ~= to_chat.ui then
-    local Chat = require("codecompanion.interactions.chat")
-    Chat.open({ ui = to_chat.ui, winnr = from_winnr, window_opts = window_opts })
-  else
-    to_chat.ui:open({ window_opts = window_opts })
-  end
+  if not require("codecompanion").buf_get_chat(to_bufnr) then return false end
+  if not place_in_win(from_chat, to_bufnr) then return false end
 
   local navigation = require("hive.agents.navigation")
   navigation.setup_winbar(to_bufnr)
@@ -130,13 +144,9 @@ function M.focus_or_open(from_chat, agent)
     if existing then family[agent.name] = nil end
   end
 
-  -- Reuse the originating chat's window for the new ACP chat. Creating it
-  -- `hidden` suppresses codecompanion's own open (which vsplits off the current
-  -- window and would either spawn a second chat split or clobber the editor's
-  -- file buffer, depending on focus). We then place it into from_chat's window
-  -- via Chat.open({ winnr = ... }), the same window CodeCompanion was occupying.
-  local from_winnr = from_chat.ui and from_chat.ui.winnr
-
+  -- Create the ACP chat `hidden` so codecompanion opens no window of its own
+  -- (its open would vsplit off the current window), then swap it into the
+  -- window codecompanion already owns. Everything stays in that one split.
   local codecompanion = require("codecompanion")
   local chat = codecompanion.chat({
     window_opts = from_chat.ui and from_chat.ui.window_opts,
@@ -149,12 +159,9 @@ function M.focus_or_open(from_chat, agent)
   end
   chat.hidden = false
 
-  local Chat = require("codecompanion.interactions.chat")
-  Chat.open({
-    ui = chat.ui,
-    winnr = from_winnr,
-    window_opts = from_chat.ui and from_chat.ui.window_opts,
-  })
+  if not place_in_win(from_chat, chat.bufnr) then
+    notify(fmt("Could not place ACP chat for agent '%s' in the chat window", agent.name), vim.log.levels.WARN)
+  end
 
   M._families[root] = M._families[root] or {}
   M._families[root][agent.name] = chat.bufnr
