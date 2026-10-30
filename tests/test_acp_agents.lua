@@ -25,18 +25,36 @@ local T = new_set({
 
         -- Fake codecompanion: chat() makes a real scratch buffer (so
         -- nvim_buf_is_valid passes) and records the adapter/command it was
-        -- asked for; buf_get_chat returns the matching fake chat.
+        -- asked for; buf_get_chat returns the matching fake chat. Each chat's ui
+        -- carries a `winnr` tag so we can assert window-slot placement.
         _G.chats = {}
         _G.chat_calls = {}
+        _G.open_calls = {}
+        local winseq = 1000
         package.loaded["codecompanion"] = {
           chat = function(opts)
             local bufnr = vim.api.nvim_create_buf(false, true)
-            local c = { bufnr = bufnr, ui = { window_opts = {}, open = noop, hide = noop } }
+            winseq = winseq + 1
+            local c = {
+              bufnr = bufnr,
+              hidden = opts.hidden or false,
+              ui = { window_opts = {}, winnr = winseq, open = noop, hide = noop },
+            }
             _G.chats[bufnr] = c
-            table.insert(_G.chat_calls, { bufnr = bufnr, params = opts.params })
+            table.insert(_G.chat_calls, { bufnr = bufnr, params = opts.params, hidden = opts.hidden })
             return c
           end,
           buf_get_chat = function(bufnr) return _G.chats[bufnr] end,
+        }
+
+        -- Stub Chat.open: records the winnr the chat was placed into, and
+        -- adopts it as the chat's winnr (mirrors show_in_win).
+        package.loaded["codecompanion.interactions.chat"] = {
+          open = function(opts)
+            table.insert(_G.open_calls, { winnr = opts.winnr })
+            if opts.ui and opts.winnr then opts.ui.winnr = opts.winnr end
+            return opts.ui
+          end,
         }
 
         package.loaded["hive.agents.acp_agents"] = nil
@@ -57,7 +75,10 @@ local function make_root(bufnr)
     local hierarchy = require("hive.agents.hierarchy")
     -- root has a session with no parent
     hierarchy.create_session({ bufnr = bufnr, agent_name = "build", agent_type = "agent" })
-    _G.chats[bufnr] = { bufnr = bufnr, ui = { window_opts = {}, open = function() end, hide = function() end } }
+    _G.chats[bufnr] = {
+      bufnr = bufnr,
+      ui = { window_opts = {}, winnr = 900, open = function() end, hide = function() end },
+    }
     return bufnr
   ]]):format(bufnr))
 end
@@ -110,6 +131,23 @@ T["acp_agents"]["forget drops the entry so a new buffer opens next time"] = func
   ]])
   expect.equality(result.a ~= result.b, true)
   expect.equality(result.opens, 2)
+end
+
+T["acp_agents"]["new chat is placed into the originating chat window and created hidden"] = function()
+  make_root(100)
+  local result = child.lua([[
+    local m = require("hive.agents.acp_agents")
+    local agent = { name = "kiro_build", type = "agent", acp = "kiro" }
+    m.focus_or_open(_G.chats[100], agent)
+    return {
+      created_hidden = _G.chat_calls[1].hidden,
+      placed_winnr = _G.open_calls[1] and _G.open_calls[1].winnr,
+    }
+  ]])
+  -- created hidden so codecompanion does not vsplit a stray window
+  expect.equality(result.created_hidden, true)
+  -- then placed into from_chat's window slot (900), not a new split
+  expect.equality(result.placed_winnr, 900)
 end
 
 T["acp_agents"]["acp=auto resolves to the configured adapter"] = function()

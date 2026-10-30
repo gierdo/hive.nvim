@@ -58,8 +58,18 @@ local function focus(from_chat, to_bufnr)
   if not to_chat then return false end
 
   local window_opts = (from_chat.ui and from_chat.ui.window_opts) or { default = true }
-  if from_chat.ui and from_chat.ui ~= to_chat.ui then from_chat.ui:hide() end
-  to_chat.ui:open({ window_opts = window_opts })
+
+  -- Place the target into from_chat's window slot rather than hide+open, which
+  -- for a vertical layout would close the chat window and then vsplit off the
+  -- editor window (clobbering the user's file buffer). Fall back to a plain open
+  -- when there is no originating window to reuse.
+  local from_winnr = from_chat.ui and from_chat.ui.winnr
+  if from_winnr and vim.api.nvim_win_is_valid(from_winnr) and from_chat.ui ~= to_chat.ui then
+    local Chat = require("codecompanion.interactions.chat")
+    Chat.open({ ui = to_chat.ui, winnr = from_winnr, window_opts = window_opts })
+  else
+    to_chat.ui:open({ window_opts = window_opts })
+  end
 
   local navigation = require("hive.agents.navigation")
   navigation.setup_winbar(to_bufnr)
@@ -120,15 +130,31 @@ function M.focus_or_open(from_chat, agent)
     if existing then family[agent.name] = nil end
   end
 
+  -- Reuse the originating chat's window for the new ACP chat. Creating it
+  -- `hidden` suppresses codecompanion's own open (which vsplits off the current
+  -- window and would either spawn a second chat split or clobber the editor's
+  -- file buffer, depending on focus). We then place it into from_chat's window
+  -- via Chat.open({ winnr = ... }), the same window CodeCompanion was occupying.
+  local from_winnr = from_chat.ui and from_chat.ui.winnr
+
   local codecompanion = require("codecompanion")
   local chat = codecompanion.chat({
     window_opts = from_chat.ui and from_chat.ui.window_opts,
     params = { adapter = adapter, command = agent.acp_command },
+    hidden = true,
   })
   if not chat then
     notify(fmt("Failed to open ACP chat for agent '%s'", agent.name), vim.log.levels.ERROR)
     return nil
   end
+  chat.hidden = false
+
+  local Chat = require("codecompanion.interactions.chat")
+  Chat.open({
+    ui = chat.ui,
+    winnr = from_winnr,
+    window_opts = from_chat.ui and from_chat.ui.window_opts,
+  })
 
   M._families[root] = M._families[root] or {}
   M._families[root][agent.name] = chat.bufnr
