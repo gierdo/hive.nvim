@@ -377,6 +377,18 @@ function M._register_tools()
     opts = {},
   }
 
+  local handoff_tool = require("hive.tools.handoff")
+  chat_tools["handoff"] = {
+    callback = function()
+      return handoff_tool
+    end,
+    description = handoff_tool.schema
+        and handoff_tool.schema["function"]
+        and handoff_tool.schema["function"].description
+      or "Hand work off to another primary agent and start it",
+    opts = {},
+  }
+
   local plan_tools = require("hive.tools.plan")
   for _, tool_name in ipairs({ "enter_plan_mode", "write_plan_file", "read_plan_file", "exit_plan_mode" }) do
     local plan_tool = plan_tools.get(tool_name)

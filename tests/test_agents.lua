@@ -586,11 +586,15 @@ T["agents"]["markdown agent fully overrides same-named builtin (acp path)"] = fu
     })
 
     local build = agents.get("build")
+    local chat = _G.new_chat(501, "model-a")
     return {
       acp = build.acp,
       -- built-in build.system_prompt is a function; markdown override is a string
       prompt_is_string = type(build.system_prompt) == "string",
       prompt = type(build.system_prompt) == "string" and build.system_prompt or "",
+      -- The ai.lua ACP decorator calls resolve_system_prompt(agent, chat); it
+      -- must return the markdown body so a per-agent prompt replaces the default.
+      resolved = agents.resolve_system_prompt("build", chat),
       -- built-in build.tools list must be gone (markdown omitted it)
       tools_nil = build.tools == nil,
       -- plan is untouched built-in: still a function prompt
@@ -601,6 +605,7 @@ T["agents"]["markdown agent fully overrides same-named builtin (acp path)"] = fu
   expect.equality(summary.acp, "kiro")
   expect.equality(summary.prompt_is_string, true)
   expect.equality(summary.prompt, "md build prompt")
+  expect.equality(summary.resolved, "md build prompt")
   expect.equality(summary.tools_nil, true)
   expect.equality(summary.plan_prompt_is_function, true)
 end

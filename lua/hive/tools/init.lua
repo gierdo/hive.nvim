@@ -14,6 +14,9 @@ M.tools = {
   ask_user = function()
     return (require("hive.tools.ask_user"))
   end,
+  handoff = function()
+    return (require("hive.tools.handoff"))
+  end,
   skill = function()
     return (require("hive.tools.skill"))
   end,
