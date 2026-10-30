@@ -81,12 +81,20 @@ local function place_in_win(from_chat, to_bufnr)
   winnr = winnr or vim.api.nvim_get_current_win()
   if not vim.api.nvim_win_is_valid(winnr) then return false end
 
+  -- Suppress only BufWinEnter during the raw buffer swap: that is the event the
+  -- user's window-guard autocmd hooks (relocating non-codecompanion buffers),
+  -- and it would fight nvim_win_set_buf into "E36: Not enough room". We must NOT
+  -- suppress BufEnter: codecompanion marks a chat as the active last_chat on the
+  -- chat buffer's BufEnter, and that tracking is what lets `:CodeCompanionChat
+  -- Toggle` later hide this chat instead of opening a fresh one.
   local saved = vim.o.eventignore
-  vim.o.eventignore = "BufWinEnter,BufEnter,WinEnter"
+  vim.o.eventignore = "BufWinEnter"
   local ok = pcall(vim.api.nvim_win_set_buf, winnr, to_bufnr)
   vim.o.eventignore = saved
   if not ok then return false end
 
+  -- Enter the window with events live so codecompanion's BufEnter fires and
+  -- records this chat as last_chat.
   vim.api.nvim_set_current_win(winnr)
 
   local to_chat = require("codecompanion").buf_get_chat(to_bufnr)

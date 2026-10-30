@@ -33,6 +33,14 @@ local T = new_set({
           chat = function(opts)
             local bufnr = vim.api.nvim_create_buf(false, true)
             vim.bo[bufnr].filetype = "codecompanion"
+            -- Mirror codecompanion: a BufEnter autocmd on the chat buffer marks
+            -- it active. place_in_win must let this fire (it only ignores
+            -- BufWinEnter), else :CodeCompanionChat Toggle loses track.
+            _G.bufenter_fired = _G.bufenter_fired or {}
+            vim.api.nvim_create_autocmd("BufEnter", {
+              buffer = bufnr,
+              callback = function() _G.bufenter_fired[bufnr] = (_G.bufenter_fired[bufnr] or 0) + 1 end,
+            })
             local c = {
               bufnr = bufnr,
               hidden = opts.hidden or false,
@@ -150,6 +158,22 @@ T["acp_agents"]["new chat is created hidden and swapped into the from window (no
   expect.equality(result.created_hidden, true)
   expect.equality(result.win_shows_acp, true)
   expect.equality(result.wins_after, result.wins_before)
+end
+
+T["acp_agents"]["placement fires BufEnter so codecompanion can track the active chat"] = function()
+  make_root(100)
+  local result = child.lua([[
+    local m = require("hive.agents.acp_agents")
+    local a = m.focus_or_open(_G.chats[100], { name = "kiro_build", type = "agent", acp = "kiro" })
+    return {
+      bufenter_count = (_G.bufenter_fired or {})[a.bufnr] or 0,
+      eventignore_restored = vim.o.eventignore == "",
+    }
+  ]])
+  -- BufEnter must have fired at least once for the placed buffer
+  expect.equality(result.bufenter_count >= 1, true)
+  -- and eventignore must be restored afterwards
+  expect.equality(result.eventignore_restored, true)
 end
 
 T["acp_agents"]["second ACP switch also lands in the one window (no stale winnr)"] = function()
